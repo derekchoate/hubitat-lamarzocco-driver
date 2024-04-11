@@ -1,7 +1,7 @@
 /**
  *  La Marzocco Espresso Machine driver for Hubitat
  *
- *  Copyright 2016 Stuart Buchanan
+ *  Copyright 2024 Derek Choate
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
@@ -19,7 +19,7 @@ import groovy.json.*
 import java.time.*
 import java.time.format.*
 
-def libversion() {"0.9.0-alpha"}
+def libversion() {"0.9.1-alpha"}
 
 library (
     author: "Derek Choate",
@@ -116,12 +116,17 @@ void refreshAccessToken(String tokenEndpoint, String refreshToken, String client
 
     String body = "client_id=${clientId}&client_secret=${clientSecret}&grant_type=refresh_token&refresh_token=${refreshToken}"
 
-    httpPostJson(uri: tokenEndpoint, 
-                requestContentType: "application/x-www-form-urlencoded", 
-                body: body) 
-                
-    {response -> 
-        loginHandler(response.data.access_token, calculateExpireyDateTime(response.data.expires_in), response.data.refresh_token)
+    try {
+        httpPostJson(uri: tokenEndpoint, 
+                    requestContentType: "application/x-www-form-urlencoded", 
+                    body: body) 
+                    
+        {response -> 
+            loginHandler(response.data.access_token, calculateExpireyDateTime(response.data.expires_in), response.data.refresh_token)
+        }
+    }
+    catch (Exception ex) {
+        throw new Exception("token expired", ex)
     }
 }
 

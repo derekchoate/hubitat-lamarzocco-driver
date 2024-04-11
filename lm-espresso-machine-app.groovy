@@ -1,7 +1,7 @@
 /**
  *  La Marzocco Espresso Machine driver for Hubitat
  *
- *  Copyright 2016 Stuart Buchanan
+ *  Copyright 2024 Derek Choate
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
@@ -13,13 +13,14 @@
  *  for the specific language governing permissions and limitations under the License.
  *
  *  1/11/2024 V0.9.0-alpha Alpha version with support for Machine State (on/off), Espresso Boiler temperature, and Water Level
+ *  4/11/2024 V0.9.1-alpha Alpha fixed bug in access token refresh handling
  */
 
 #include derekchoate.lmCommon
 import com.hubitat.app.ChildDeviceWrapper
 import groovy.transform.Field
 
-def version() {"0.9.0-alpha"}
+def version() {"0.9.1-alpha"}
 
 @Field final Boolean debug = true
 
@@ -42,7 +43,7 @@ preferences {
 }
 
 def startPage() {
-    //log.trace("startPage")
+    log.trace("startPage")
     if (state.accessToken == null) {
         return authPage()
     }
@@ -52,7 +53,7 @@ def startPage() {
 }
 
 def authPage() {
-    //log.trace("authPage")
+    log.trace("authPage")
 
 	def description = "Tap to enter Credentials."
 	return dynamicPage(name: "Credentials", title: "Authorize Connection", nextPage:"loginInterstitial", uninstall: false , install:false) {
@@ -71,7 +72,7 @@ def authPage() {
 }
 
 def loginInterstitialPage() {
-    //log.trace("loginInterstitialPage")
+    log.trace("loginInterstitialPage")
 
     if (settings.username == null) {
         throw new Exception("Username is required")
@@ -115,9 +116,14 @@ def loginInterstitialPage() {
 }
 
 def listDevicesPage() {
-    //log.trace("listDevicesPage")
+    log.trace("listDevicesPage")
 
-    refreshAccessToken()
+    try {
+        refreshAccessToken()
+    }
+    catch (Exception ex) {
+        return authPage()
+    }
 
     Map<String, String> options = null
 
@@ -133,7 +139,7 @@ def listDevicesPage() {
 }
 
 def completePage() {
-    //log.trace("completePage")
+    log.trace("completePage")
 
     Map<String, ChildDeviceWrapper> childDevices = getChildDevicesBySerialNumber()
     
@@ -157,7 +163,7 @@ def completePage() {
 }
 
 def badAuthPage(){
-    //log.trace("badAuthPage")
+    log.trace("badAuthPage")
 
     log.error "Unable to get access token"
     return dynamicPage(name: "badCredentials", title: "Invalid Username and Password", install:false, uninstall:true, nextPage: authPage) {
@@ -168,7 +174,7 @@ def badAuthPage(){
 }
 
 Map<String, ChildDeviceWrapper> getChildDevicesBySerialNumber() {
-    //log.trace("getChildDevicesBySerialNumber")
+    log.trace("getChildDevicesBySerialNumber")
 
     Map<String, ChildDeviceWrapper> childDevices = [:]
 
@@ -187,7 +193,7 @@ Map<String, ChildDeviceWrapper> getChildDevicesBySerialNumber() {
 }
 
 void addEspressoMachine(String serialNumber) {
-    //log.trace("addEspressoMachine")
+    log.trace("addEspressoMachine")
 
     ChildDeviceWrapper newDevice = addChildDevice("derekchoate", "La Marzocco Home Espresso Machine", serialNumber)
     newDevice.updateSetting("serialNumber", serialNumber)
@@ -195,13 +201,13 @@ void addEspressoMachine(String serialNumber) {
 }
 
 void removeEspressoMachine(ChildDeviceWrapper device) {
-    //log.trace("removeEspressoMachine")
+    log.trace("removeEspressoMachine")
 
     deleteChildDevice(device.getDeviceNetworkId())
 }
 
 void refreshAccessToken() {
-    //log.trace("refreshAccessToken")
+    log.trace("refreshAccessToken")
 
     DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
 
@@ -240,16 +246,23 @@ void refreshAccessToken() {
         throw new Exception("clientSecret is required to refresh the access token")
     }
 
-    refreshAccessToken(tokenEndpoint, refreshToken, clientId, clientSecret) 
-    {   accessToken, accessTokenExpires, newRefreshToken ->
-        state.accessToken = accessToken
-        state.accessTokenExpires = "DateTime: " + accessTokenExpires.format(formatter)
-        state.refreshToken = newRefreshToken
+    try {
+        refreshAccessToken(tokenEndpoint, refreshToken, clientId, clientSecret) 
+        {   accessToken, accessTokenExpires, newRefreshToken ->
+            state.accessToken = accessToken
+            state.accessTokenExpires = "DateTime: " + accessTokenExpires.format(formatter)
+            state.refreshToken = newRefreshToken
+        }
+    }
+    catch (Exception ex) {
+        app.removeSetting("refreshToken")
+        app.removeSetting("accessTokenExpires")
+        throw ex
     }
 }
 
 void refreshMachineDetails(String serialNumber, Closure responseHandler) {
-    //log.trace("refreshMachineDetails")
+    log.trace("refreshMachineDetails")
 
     if (settings?.customerEndpoint == null) {
         throw new Exception("Customer Endpoint is required")
@@ -265,7 +278,7 @@ void refreshMachineDetails(String serialNumber, Closure responseHandler) {
         throw new Exception("There is no access token stored in state")
     }
 
-    //log.trace("(in app) getting machine details for ${serialNumber}")
+    log.trace("(in app) getting machine details for ${serialNumber}")
 
     getMachineDetails(settings?.customerEndpoint, serialNumber, state.accessToken) 
 
@@ -275,7 +288,7 @@ void refreshMachineDetails(String serialNumber, Closure responseHandler) {
 }
 
 void refreshMachineIpAddress(String serialNumber, Closure responseHandler) {
-    //log.trace("refreshMachineIpAddress")
+    log.trace("refreshMachineIpAddress")
 
     if (settings?.deviceEndpoint == null) {
         throw new Exception("Device Endpoint is required")
@@ -299,7 +312,7 @@ void refreshMachineIpAddress(String serialNumber, Closure responseHandler) {
 
 
 void setMachineStatus(String serialNumber, String status) {
-    //log.trace("setMachineStatus")
+    log.trace("setMachineStatus")
 
     if (settings?.deviceEndpoint == null) {
         throw new Exception("Device Endpoint is required")
