@@ -22,7 +22,7 @@ import java.time.*
 import java.time.format.*
 import groovy.json.*
 
-def version() {"0.9.0-alpha"}
+def version() {"0.9.1-alpha"}
 
 @Field final Boolean debug = true
 
