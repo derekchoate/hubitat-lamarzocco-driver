@@ -13,13 +13,14 @@
  *  for the specific language governing permissions and limitations under the License.
  *
  *  1/11/2024 V0.9.0-alpha Alpha version with support for Machine State (on/off), Espresso Boiler temperature, and Water Level
+ *  31/7/2025 v2.0.0-alpha Alpha version with support for latest gateway firmware (v5.2.7)
  */
 
 import groovy.json.*
 import java.time.*
 import java.time.format.*
 
-def libversion() {"0.9.1-alpha"}
+def libversion() {"2.0.0-alpha"}
 
 library (
     author: "Derek Choate",
@@ -32,8 +33,10 @@ library (
 
 String getConstant(String name) {
     Map<String, String> CONSTANTS = [
-        "MACHINE_STATUS_ON" : "BrewingMode",
-        "MACHINE_STATUS_OFF" : "StandBy"
+        "THING_TYPE_COFFEE_MACHINE" : "CoffeeMachine",
+        "COMMAND_POWER_CHANGE_STATE" : "CoffeeMachineChangeMode",
+        "POWER_STATE_ACTIVE" : "BrewingMode",
+        "POWER_STATE_STANDBY" : "StandBy"
     ]
 
     if (!CONSTANTS.containsKey(name)) {
@@ -44,96 +47,150 @@ String getConstant(String name) {
 }
 
 String getEndpoint(String name, Map<String, String> parameters) {
+    //log.trace("getEndpoint")
+
     Map<String, String> ENDPOINTS = [
-        "STATUS" : ":deviceEndpoint/:serialNumber/status",
-        "LAST_ONLINE" : ":deviceEndpoint/:serialNumber/last-online",
-        "CUSTOMER" : ":customerEndpoint",
-        "LOCAL_CONFIG" : "http://:localIpAddress:8081/api/v1/config",
-        "STREAMING" : "ws://:localIpAddress:8081/api/v1/streaming"
+        "LOGIN" : "https://:apiHost:customerEndpoint/auth/signin",
+        "REFRESH_TOKEN" : "https://:apiHost:customerEndpoint/auth/refreshtoken",
+        "THINGS" : "https://:apiHost:customerEndpoint/things",
+        "DASHBOARD" : "https://:apiHost:customerEndpoint/things/:serialNumber/dashboard",
+        "SETTINGS" : "https://:apiHost:customerEndpoint/things/:serialNumber/settings",
+        "COMMAND" : "https://:apiHost:customerEndpoint/things/:serialNumber/command/:command",
+        "STREAMING" : "wss://:apiHost:streamingEndpoint"
     ]
 
     if (!ENDPOINTS.containsKey(name)) {
         throw new Exception("Endpoint ${name} is not defined")
     }
+
     String formattedEndpoint = ENDPOINTS[name]
+    
     for (String key in parameters.keySet()) {
         formattedEndpoint = formattedEndpoint.replaceAll("\\:${key}", parameters[key])
     }
+
+    //log.trace("getEndpoint (returning)")
+
     return formattedEndpoint
 }
 
 void sendJsonPost(String endpointName, Map<String, String> parameters, String bearerToken, Object body, Closure responseHandler) {
+    //log.trace("sendJsonPost")
+    
     String endpoint = getEndpoint(endpointName, parameters)
     String bodyText = new JsonBuilder(body).toString()
 
-    Object responseData = null
+    try {
+        httpPostJson(uri: endpoint,
+                requestContentType: "application/json",
+                headers: [
+                    "Authorization" : "Bearer ${bearerToken}"
+                ],
+                body: bodyText) 
+        
+        {response -> 
+            //log.trace("sendJsonPost response closure")
 
-    httpPostJson(uri: endpoint,
-            requestContentType: "application/json",
-            headers: [
-                "Authorization" : "Bearer ${bearerToken}"
-            ],
-            body: bodyText) 
-    
-    {response -> 
-    responseHandler(response)
+            responseHandler(response)
+
+            //log.trace("sendJsonPost response closure (completed)")
+        }
     }
+    catch (Exception ex) {
+        log.error("An error occurred whilst calling the endpoint ${endpoint}")
+        throw ex
+    }
+
+    //log.trace("sendJsonPost (complete)")
 }
 
 void getJson(String endpointName, Map<String, String> parameters, String bearerToken, Closure responseHandler) {
+    //log.trace("getJson")
+
     String endpoint = getEndpoint(endpointName, parameters)
 
-    Object responseData = null
-
-    httpGet(uri: endpoint,
+    try {
+        httpGet(uri: endpoint,
             contentType: "application/json",
             headers: [
                 "Authorization" : "Bearer ${bearerToken}"
             ]) 
             
-    {response -> 
-        responseHandler(response)
+        {response -> 
+            //log.trace("getJson response closure")
+
+            responseHandler(response)
+
+            //log.trace("getJson response closure (complete)")
+        }
     }
+    catch (Exception ex) {
+        log.error("An error occurred whilst calling the endpoint ${endpoint}")
+        throw ex
+    }
+
+    //log.trace("getJson (complete)")
+    
 }
 
-void refreshAccessToken(String tokenEndpoint, String refreshToken, String clientId, String clientSecret, Closure loginHandler) {
+void refreshAccessToken(String apiHost, String customerEndpoint, String username, String refreshToken, Closure loginHandler) {
+    //log.trace("refreshAccessToken")
 
-    if (tokenEndpoint == null) {
-        throw new Exception("tokenEndpoint is required")
+    if (apiHost == null) {
+        throw new Exception("apiHost is required")
+    }
+
+    if (customerEndpoint == null) {
+        throw new Exception("customerEndpoint is required")
+    }
+
+    if (username == null) {
+        throw new Exception("username is required")
     }
 
     if (refreshToken == null) {
         throw new Exception("refreshToken is required")
     }
 
-    if (clientId == null) {
-        throw new Exception("clientId is required")
-    }
+    Map<String, String> credentials = [
+        "username" : username, 
+        "refreshToken" : refreshToken
+    ]
 
-    if (clientSecret == null) {
-        throw new Exception("clientSecret is required")
-    }
+    String bodyText = new JsonBuilder(credentials).toString();
 
-    String body = "client_id=${clientId}&client_secret=${clientSecret}&grant_type=refresh_token&refresh_token=${refreshToken}"
-
+    String tokenEndpoint = getEndpoint("REFRESH_TOKEN", ["apiHost" : apiHost, "customerEndpoint" : customerEndpoint]);
+    
     try {
         httpPostJson(uri: tokenEndpoint, 
-                    requestContentType: "application/x-www-form-urlencoded", 
-                    body: body) 
+                    contentType: "application/json; charset=utf-8", 
+                    body: bodyText) 
                     
         {response -> 
-            loginHandler(response.data.access_token, calculateExpireyDateTime(response.data.expires_in), response.data.refresh_token)
+            //log.trace("refreshAccessToken httpPostJson closure")
+
+            loginHandler(response.data.accessToken, calculateExpireyDateTime(3600), response.data.refreshToken)
+
+            //log.trace("refreshAccessToken httpPostJson closure (complete)")
         }
     }
     catch (Exception ex) {
-        throw new Exception("token expired", ex)
+        log.error("error ")
+        throw new Exception("token expired, please login again", ex)
     }
+
+    //log.trace("refreshAccessToken (complete)")
 }
 
-void login(String tokenEndpoint, String username, String password, String clientId, String clientSecret, Closure loginHandler) {
+void login(String apiHost, String customerEndpoint, String username, String password, Closure loginHandler) {
+    //log.trace("login")
 
-    if (tokenEndpoint == null) {
-        throw new Exception("tokenEndpoint is required")
+    if (apiHost == null) {
+        throw new Exception("apiHost is required")
+    }
+
+    if (customerEndpoint == null) {
+        throw new Exception("customerEndpoint is required")
     }
 
     if (username == null) {
@@ -144,33 +201,50 @@ void login(String tokenEndpoint, String username, String password, String client
         throw new Exception("password is required")
     }
 
-    if (clientId == null) {
-        throw new Exception("clientId is required")
-    }
+    Map<String, Object> credentials = [
+        "username" : username,
+        "password" : password
+    ]
 
-    if (clientSecret == null) {
-        throw new Exception("clientSecret is required")
-    }
+    String bodyText = new JsonBuilder(credentials).toString();
 
-    String body = "client_id=${clientId}&client_secret=${clientSecret}&grant_type=password&username=${username}&password=${password}"
+    String loginEndpoint = getEndpoint("LOGIN", ["apiHost" : apiHost, "customerEndpoint" : customerEndpoint]);
 
-    httpPostJson(uri: tokenEndpoint, 
-                requestContentType: "application/x-www-form-urlencoded", 
-                body: body) 
+    httpPostJson(uri: loginEndpoint, 
+                contentType: "application/json; charset=utf-8", 
+                body: bodyText) 
                 
     {response -> 
-        loginHandler(response.data.access_token, calculateExpireyDateTime(response.data.expires_in), response.data.refresh_token)
+        //log.trace("login httpPostJson closure")
+
+        loginHandler(response.data.accessToken, calculateExpireyDateTime(3600), response.data.refreshToken)
+
+        //log.trace("login httpPostJson closure (completed)")
     }
+
+    //log.trace("login (complete)")
 }
 
 LocalDateTime calculateExpireyDateTime(Integer expiresIn) {
+    //log.trace("calculateExpireyDateTime")
+
     Integer ttl = expiresIn - 10
     LocalDateTime accessTokenExpires = LocalDateTime.now().plusSeconds(ttl)
+
+    //log.trace("calculateExpireyDateTime (returning)")
+
+    return accessTokenExpires
 }
 
-void getMachineStatus(String deviceEndpoint, String serialNumber, String accessToken, Closure responseHandler) {
-    if (deviceEndpoint == null) {
-        throw new Exception("deviceEndpoint is required")
+void executeCommand(String apiHost, String customerEndpoint, String serialNumber, String accessToken, String command, Map<String, Object> commandParameters) {
+    //log.trace("executeCommand")
+
+    if (apiHost == null) {
+        throw new Exception("apiHost is required")
+    }
+    
+    if (customerEndpoint == null) {
+        throw new Exception("customerEndpoint is required")
     }
 
     if (serialNumber == null) {
@@ -181,51 +255,38 @@ void getMachineStatus(String deviceEndpoint, String serialNumber, String accessT
         throw new Exception("accessToken is required")
     }
 
-    Map<String, String> parameters = ["deviceEndpoint" : deviceEndpoint, 
-                                    "serialNumber" : serialNumber]
+    if (command == null) {
+        throw new Exception("command is required")
+    }
 
-    getJson("STATUS", parameters, accessToken)
+    Map<String, String> parameters = ["apiHost" : apiHost, 
+                                      "customerEndpoint" : customerEndpoint, 
+                                      "serialNumber" : serialNumber,
+                                      "command" : command]
+
+    sendJsonPost("COMMAND", parameters, accessToken, commandParameters)
 
     {response -> 
-        responseHandler(response.data.data.MACHINE_STATUS, response.data.data.LEVEL_TANK)
+        //log.trace("executeCommand - sendJsonPost - closure")
+
+        if (response.data?.errorCode != null) {
+            //log.trace("executeCommand (returning early because the request resulted in an error)")
+            throw new Exception("An error '${response.data?.errorCode}' occurred whilst executing the command ${command}")
+        }
+
+        //log.trace("executeCommand - sendJsonPost - closure (complete)")
     }
+
+    //log.trace("executeCommand (complete)")
 }
 
-void setMachineStatus(String deviceEndpoint, String serialNumber, String accessToken, String status) {
-    if (deviceEndpoint == null) {
-        throw new Exception("deviceEndpoint is required")
+void getRegisteredMachines(String apiHost, String customerEndpoint, String accessToken, Closure responseHandler) {
+    //log.trace("getRegisteredMachines")
+    
+    if (apiHost == null) {
+        throw new Exception("apiHost is required")
     }
-
-    if (serialNumber == null) {
-        throw new Exception("serialNumber is required")
-    }
-
-    if (accessToken == null) {
-        throw new Exception("accessToken is required")
-    }
-
-    if (status == null) {
-        throw new Exception("status is required")
-    }
-
-    Map<String, String> parameters = ["deviceEndpoint" : deviceEndpoint, 
-                                    "serialNumber" : serialNumber]
-
-    Map<String, Object> body = ["status" : status]
-
-    sendJsonPost("STATUS", parameters, accessToken, body)
-
-    {response -> 
-        if (response.data.status == true) {
-            //log.info("Status set successfully")
-        }
-        else {
-            throw new Exception("Failed to set stastus")
-        }
-    }
-}
-
-void getRegisteredMachines(String customerEndpoint, String accessToken, Closure responseHandler) {
+    
     if (customerEndpoint == null) {
         throw new Exception("Customer Endpoint is required")
     }
@@ -234,25 +295,37 @@ void getRegisteredMachines(String customerEndpoint, String accessToken, Closure 
         throw new Exception("accessToken is required")
     }
 
-    Map<String, String> parameters = ["customerEndpoint" : customerEndpoint]
+    Map<String, String> parameters = ["apiHost" : apiHost, "customerEndpoint" : customerEndpoint]
 
-    getJson("CUSTOMER", parameters, accessToken)
+    getJson("THINGS", parameters, accessToken)
 
     {response -> 
 
-        List<Map<String, Object>> fleet = response.data.data.fleet
+        //log.trace("getRegisteredMachines getJson closure")
 
-        Map<String, String> devices = [:]
+        List<Map<String, Object>> things = response.data;
 
-        fleet.each {
-            devices[it.machine.serialNumber] = "${it.machine.model.name} (${it.machine.serialNumber})"
+        Map<String, String> devices = [:]        
+
+        things.findAll{it.type == "CoffeeMachine"}.each {
+            devices[it.serialNumber] = "${it.name} (${it.modelName} - ${it.serialNumber})"
         }
 
         responseHandler(devices)
+
+        //log.trace("getRegisteredMachines getJson closure (complete)")
     }
+
+    //log.trace("getRegisteredMachines (complete)")
 }
 
-void getMachineDetails(String customerEndpoint, String serialNumber, String accessToken, Closure responseHandler) {
+void getMachineDashboard(String apiHost, String customerEndpoint, String serialNumber, String accessToken, Closure responseHandler) {
+    //log.trace("getMachineDashboard")
+
+    if (apiHost == null) {
+        throw new Exception("apiHost is required")
+    }
+
     if (customerEndpoint == null) {
         throw new Exception("Customer Endpoint is required")
     }
@@ -265,63 +338,147 @@ void getMachineDetails(String customerEndpoint, String serialNumber, String acce
         throw new Exception("accessToken is required")
     }
 
-    Map<String, String> parameters = ["customerEndpoint" : customerEndpoint]
+    Map<String, String> parameters = ["apiHost" : apiHost,
+                                      "customerEndpoint" : customerEndpoint,
+                                      "serialNumber" : serialNumber];
 
-    getJson("CUSTOMER", parameters, accessToken)
+    getJson("DASHBOARD", parameters, accessToken)
     
     {response -> 
 
-        List<Map<String, Object>> fleet = response.data.data.fleet
+        //log.trace("getMachineDashboard getJson closure")
 
-        Map<String, Object> machine = fleet.find({
-            it.machine.serialNumber == serialNumber
-        })
+        Map<String, Object> machine = response.data;
 
-        if (machine == null) {
-            throw new Exception("No machine found with the supplied serial number")
-            return
-        }
+        responseHandler(response.data);
 
-        responseHandler(machine.communicationKey, machine.machine.model.name)
+        //log.trace("getMachineDashboard getJson closure (completed)")
     }
+
+    //log.trace("getMachineDashboard (complete)")
 }
 
-void getMachineIpAddress(String deviceEndpoint, String serialNumber, String accessToken, Closure responseHandler) {
-    if (deviceEndpoint == null) {
-        throw new Exception("deviceEndpoint is required")
+void getMachineConfig(String apiHost, String customerEndpoint, String serialNumber, String accessToken, Closure responseHandler) {
+    //log.trace("getMachineConfig")
+
+    if (apiHost == null) {
+        throw new Exception("apiHost is required")
+    }
+
+    if (customerEndpoint == null) {
+        throw new Exception("Customer Endpoint is required")
     }
 
     if (serialNumber == null) {
-        throw new Exception("serialNumber is required")
+        throw new Exception("Device Serial Number is required")
     }
 
     if (accessToken == null) {
         throw new Exception("accessToken is required")
     }
 
-    Map<String, String> parameters = ["deviceEndpoint" : deviceEndpoint, 
-                                    "serialNumber" : serialNumber]
+    Map<String, String> parameters = ["apiHost" : apiHost,
+                                      "customerEndpoint" : customerEndpoint,
+                                      "serialNumber" : serialNumber];
 
-    getJson("LAST_ONLINE", parameters, accessToken)
-
+    getJson("SETTINGS", parameters, accessToken)            
     {response -> 
-        responseHandler(response.data.data.ip)
+        //log.trace("getMachineConfig getJson closure")
+
+        responseHandler(response.data)
+
+        //log.trace("getMachineConfig getJson closure (complete)")
     }
+
+    //log.trace("getMachineConfig (complete)")
 }
 
-void getMachineConfig(String localIpAddress, String communicationKey, Closure responseHandler) {
-    if (localIpAddress == null) {
-        throw new Exception("Local IP Address is required")
+String formatStompMessage(String command, Map<String, String> headers, String body) {
+    //log.trace("formatStompMessage")
+
+    List<String> fragments = [command]
+
+    headers.each{
+        key, value -> 
+            fragments.add("${key}:${value}")
     }
 
-    if (communicationKey == null) {
-        throw new Exception("communicationKey is required")
+    String message = fragments.join("\n") + "\n\n"
+
+    if (body != null && body != "") {
+        message += body
     }
 
-    Map<String, String> parameters = ["localIpAddress" : localIpAddress]
+    message += "\0"
 
-    getJson("LOCAL_CONFIG", parameters, communicationKey)            
-    {response -> 
-        responseHandler(response.data)
+    //log.trace("formatStompMessage (returning)")
+
+    return message
+}
+
+void parseStompMessage(String message, Closure handler) {
+    //log.trace("parseStompMessage")
+
+    if (message == null || message.trim() == "") {
+        throw new Exception("message is required")
     }
+
+    String messageType
+    Map<String, String> headers = [:]
+    String body
+
+    String[] fragments = message.split("\n")
+
+    messageType = fragments[0]
+
+    if (!["CONNECTED", "MESSAGE", "RECEIPT", "ERROR"].contains(messageType)) {
+        throw new Exception("Message is malformed - expecting the first line to contain a valid messageType, but received ${messageType}")
+    }
+
+    Integer i = 1;
+
+    //log.trace("parseStompMessage - completed parsing messageType, starting headers")
+
+    while (fragments.length > i && fragments[i] != null && fragments[i] != "" && fragments[i] != "\0") {
+        (headerName, headerValue) = parseStompHeader(fragments[i])
+        headers[headerName] = headerValue
+        ++i
+    }
+
+    //log.trace("parseStompMessage - completed parsing headers, starting body")
+
+    if (fragments[i] != "\0") {
+        body = ""
+        while (fragments.length > i && fragments[i] != "\0") {
+            if (fragments[i] != null) {
+                body += fragments[i]
+            }
+            body += "\n"
+            ++i
+        }
+    }
+
+    handler(messageType, headers, body)
+
+    //log.trace("parseStompMessage (complete)")
+}
+
+List<String> parseStompHeader(String header) {
+    //log.trace("parseStompHeader")
+
+    if (header == null || header.trim() == "") {
+        //log.trace("parseStompHeader (complete)")
+
+        return [null, null]
+    }
+
+    if (!header.contains(":")) {
+        //log.trace("parseStompHeader (complete)")
+
+        return [header, null]
+    }
+
+    //log.trace("parseStompHeader (returning)")
+
+    return header.tokenize(":")
 }
