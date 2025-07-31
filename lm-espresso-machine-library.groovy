@@ -47,7 +47,7 @@ String getConstant(String name) {
 }
 
 String getEndpoint(String name, Map<String, String> parameters) {
-    log.trace("getEndpoint")
+    //log.trace("getEndpoint")
 
     Map<String, String> ENDPOINTS = [
         "LOGIN" : "https://:apiHost:customerEndpoint/auth/signin",
@@ -69,13 +69,13 @@ String getEndpoint(String name, Map<String, String> parameters) {
         formattedEndpoint = formattedEndpoint.replaceAll("\\:${key}", parameters[key])
     }
 
-    log.trace("getEndpoint (returning)")
+    //log.trace("getEndpoint (returning)")
 
     return formattedEndpoint
 }
 
 void sendJsonPost(String endpointName, Map<String, String> parameters, String bearerToken, Object body, Closure responseHandler) {
-    log.trace("sendJsonPost")
+    //log.trace("sendJsonPost")
     
     String endpoint = getEndpoint(endpointName, parameters)
     String bodyText = new JsonBuilder(body).toString()
@@ -89,11 +89,11 @@ void sendJsonPost(String endpointName, Map<String, String> parameters, String be
                 body: bodyText) 
         
         {response -> 
-            log.trace("sendJsonPost response closure")
+            //log.trace("sendJsonPost response closure")
 
             responseHandler(response)
 
-            log.trace("sendJsonPost response closure (completed)")
+            //log.trace("sendJsonPost response closure (completed)")
         }
     }
     catch (Exception ex) {
@@ -101,11 +101,11 @@ void sendJsonPost(String endpointName, Map<String, String> parameters, String be
         throw ex
     }
 
-    log.trace("sendJsonPost (complete)")
+    //log.trace("sendJsonPost (complete)")
 }
 
 void getJson(String endpointName, Map<String, String> parameters, String bearerToken, Closure responseHandler) {
-    log.trace("getJson")
+    //log.trace("getJson")
 
     String endpoint = getEndpoint(endpointName, parameters)
 
@@ -117,11 +117,11 @@ void getJson(String endpointName, Map<String, String> parameters, String bearerT
             ]) 
             
         {response -> 
-            log.trace("getJson response closure")
+            //log.trace("getJson response closure")
 
             responseHandler(response)
 
-            log.trace("getJson response closure (complete)")
+            //log.trace("getJson response closure (complete)")
         }
     }
     catch (Exception ex) {
@@ -129,12 +129,12 @@ void getJson(String endpointName, Map<String, String> parameters, String bearerT
         throw ex
     }
 
-    log.trace("getJson (complete)")
+    //log.trace("getJson (complete)")
     
 }
 
 void refreshAccessToken(String apiHost, String customerEndpoint, String username, String refreshToken, Closure loginHandler) {
-    log.trace("refreshAccessToken")
+    //log.trace("refreshAccessToken")
 
     if (apiHost == null) {
         throw new Exception("apiHost is required")
@@ -167,11 +167,11 @@ void refreshAccessToken(String apiHost, String customerEndpoint, String username
                     body: bodyText) 
                     
         {response -> 
-            log.trace("refreshAccessToken httpPostJson closure")
+            //log.trace("refreshAccessToken httpPostJson closure")
 
             loginHandler(response.data.accessToken, calculateExpireyDateTime(3600), response.data.refreshToken)
 
-            log.trace("refreshAccessToken httpPostJson closure (complete)")
+            //log.trace("refreshAccessToken httpPostJson closure (complete)")
         }
     }
     catch (Exception ex) {
@@ -179,11 +179,11 @@ void refreshAccessToken(String apiHost, String customerEndpoint, String username
         throw new Exception("token expired, please login again", ex)
     }
 
-    log.trace("refreshAccessToken (complete)")
+    //log.trace("refreshAccessToken (complete)")
 }
 
 void login(String apiHost, String customerEndpoint, String username, String password, Closure loginHandler) {
-    log.trace("login")
+    //log.trace("login")
 
     if (apiHost == null) {
         throw new Exception("apiHost is required")
@@ -215,29 +215,29 @@ void login(String apiHost, String customerEndpoint, String username, String pass
                 body: bodyText) 
                 
     {response -> 
-        log.trace("login httpPostJson closure")
+        //log.trace("login httpPostJson closure")
 
         loginHandler(response.data.accessToken, calculateExpireyDateTime(3600), response.data.refreshToken)
 
-        log.trace("login httpPostJson closure (completed)")
+        //log.trace("login httpPostJson closure (completed)")
     }
 
-    log.trace("login (complete)")
+    //log.trace("login (complete)")
 }
 
 LocalDateTime calculateExpireyDateTime(Integer expiresIn) {
-    log.trace("calculateExpireyDateTime")
+    //log.trace("calculateExpireyDateTime")
 
     Integer ttl = expiresIn - 10
     LocalDateTime accessTokenExpires = LocalDateTime.now().plusSeconds(ttl)
 
-    log.trace("calculateExpireyDateTime (returning)")
+    //log.trace("calculateExpireyDateTime (returning)")
 
     return accessTokenExpires
 }
 
 void executeCommand(String apiHost, String customerEndpoint, String serialNumber, String accessToken, String command, Map<String, Object> commandParameters) {
-    log.trace("executeCommand")
+    //log.trace("executeCommand")
 
     if (apiHost == null) {
         throw new Exception("apiHost is required")
@@ -267,21 +267,21 @@ void executeCommand(String apiHost, String customerEndpoint, String serialNumber
     sendJsonPost("COMMAND", parameters, accessToken, commandParameters)
 
     {response -> 
-        log.trace("executeCommand - sendJsonPost - closure")
+        //log.trace("executeCommand - sendJsonPost - closure")
 
         if (response.data?.errorCode != null) {
-            log.trace("executeCommand (returning early because the request resulted in an error)")
+            //log.trace("executeCommand (returning early because the request resulted in an error)")
             throw new Exception("An error '${response.data?.errorCode}' occurred whilst executing the command ${command}")
         }
 
-        log.trace("executeCommand - sendJsonPost - closure (complete)")
+        //log.trace("executeCommand - sendJsonPost - closure (complete)")
     }
 
-    log.trace("executeCommand (complete)")
+    //log.trace("executeCommand (complete)")
 }
 
 void getRegisteredMachines(String apiHost, String customerEndpoint, String accessToken, Closure responseHandler) {
-    log.trace("getRegisteredMachines")
+    //log.trace("getRegisteredMachines")
     
     if (apiHost == null) {
         throw new Exception("apiHost is required")
@@ -301,7 +301,7 @@ void getRegisteredMachines(String apiHost, String customerEndpoint, String acces
 
     {response -> 
 
-        log.trace("getRegisteredMachines getJson closure")
+        //log.trace("getRegisteredMachines getJson closure")
 
         List<Map<String, Object>> things = response.data;
 
@@ -313,14 +313,14 @@ void getRegisteredMachines(String apiHost, String customerEndpoint, String acces
 
         responseHandler(devices)
 
-        log.trace("getRegisteredMachines getJson closure (complete)")
+        //log.trace("getRegisteredMachines getJson closure (complete)")
     }
 
-    log.trace("getRegisteredMachines (complete)")
+    //log.trace("getRegisteredMachines (complete)")
 }
 
 void getMachineDashboard(String apiHost, String customerEndpoint, String serialNumber, String accessToken, Closure responseHandler) {
-    log.trace("getMachineDashboard")
+    //log.trace("getMachineDashboard")
 
     if (apiHost == null) {
         throw new Exception("apiHost is required")
@@ -346,20 +346,20 @@ void getMachineDashboard(String apiHost, String customerEndpoint, String serialN
     
     {response -> 
 
-        log.trace("getMachineDashboard getJson closure")
+        //log.trace("getMachineDashboard getJson closure")
 
         Map<String, Object> machine = response.data;
 
         responseHandler(response.data);
 
-        log.trace("getMachineDashboard getJson closure (completed)")
+        //log.trace("getMachineDashboard getJson closure (completed)")
     }
 
-    log.trace("getMachineDashboard (complete)")
+    //log.trace("getMachineDashboard (complete)")
 }
 
 void getMachineConfig(String apiHost, String customerEndpoint, String serialNumber, String accessToken, Closure responseHandler) {
-    log.trace("getMachineConfig")
+    //log.trace("getMachineConfig")
 
     if (apiHost == null) {
         throw new Exception("apiHost is required")
@@ -383,18 +383,18 @@ void getMachineConfig(String apiHost, String customerEndpoint, String serialNumb
 
     getJson("SETTINGS", parameters, accessToken)            
     {response -> 
-        log.trace("getMachineConfig getJson closure")
+        //log.trace("getMachineConfig getJson closure")
 
         responseHandler(response.data)
 
-        log.trace("getMachineConfig getJson closure (complete)")
+        //log.trace("getMachineConfig getJson closure (complete)")
     }
 
-    log.trace("getMachineConfig (complete)")
+    //log.trace("getMachineConfig (complete)")
 }
 
 String formatStompMessage(String command, Map<String, String> headers, String body) {
-    log.trace("formatStompMessage")
+    //log.trace("formatStompMessage")
 
     List<String> fragments = [command]
 
@@ -411,13 +411,13 @@ String formatStompMessage(String command, Map<String, String> headers, String bo
 
     message += "\0"
 
-    log.trace("formatStompMessage (returning)")
+    //log.trace("formatStompMessage (returning)")
 
     return message
 }
 
 void parseStompMessage(String message, Closure handler) {
-    log.trace("parseStompMessage")
+    //log.trace("parseStompMessage")
 
     if (message == null || message.trim() == "") {
         throw new Exception("message is required")
@@ -437,7 +437,7 @@ void parseStompMessage(String message, Closure handler) {
 
     Integer i = 1;
 
-    log.trace("parseStompMessage - completed parsing messageType, starting headers")
+    //log.trace("parseStompMessage - completed parsing messageType, starting headers")
 
     while (fragments.length > i && fragments[i] != null && fragments[i] != "" && fragments[i] != "\0") {
         (headerName, headerValue) = parseStompHeader(fragments[i])
@@ -445,7 +445,7 @@ void parseStompMessage(String message, Closure handler) {
         ++i
     }
 
-    log.trace("parseStompMessage - completed parsing headers, starting body")
+    //log.trace("parseStompMessage - completed parsing headers, starting body")
 
     if (fragments[i] != "\0") {
         body = ""
@@ -460,25 +460,25 @@ void parseStompMessage(String message, Closure handler) {
 
     handler(messageType, headers, body)
 
-    log.trace("parseStompMessage (complete)")
+    //log.trace("parseStompMessage (complete)")
 }
 
 List<String> parseStompHeader(String header) {
-    log.trace("parseStompHeader")
+    //log.trace("parseStompHeader")
 
     if (header == null || header.trim() == "") {
-        log.trace("parseStompHeader (complete)")
+        //log.trace("parseStompHeader (complete)")
 
         return [null, null]
     }
 
     if (!header.contains(":")) {
-        log.trace("parseStompHeader (complete)")
+        //log.trace("parseStompHeader (complete)")
 
         return [header, null]
     }
 
-    log.trace("parseStompHeader (returning)")
+    //log.trace("parseStompHeader (returning)")
 
     return header.tokenize(":")
 }

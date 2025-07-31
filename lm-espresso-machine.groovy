@@ -59,31 +59,31 @@ metadata {
 /* START: driver lifecycle event handlers */
 
 void installed() {
-    log.trace("installed (stated / completed)")
+    //log.trace("installed (stated / completed)")
 }
 
 void updated() {
-    log.trace("updated")
+    //log.trace("updated")
     initialize()
-    log.trace("updated (completed)")
+    //log.trace("updated (completed)")
 }
 
 void initialize() {
-    log.trace("initialize")
+    //log.trace("initialize")
 
     disconnect()
     refreshAll()
     initializeStreaming()
 
-    log.trace("initialize (completed)")
+    //log.trace("initialize (completed)")
 }
 
 void uninstall() {
-    log.trace("uninstall")
+    //log.trace("uninstall")
 
     disconnect()
 
-    log.trace("uninstall (completed)")
+    //log.trace("uninstall (completed)")
 }
 
 /* END: driver lifecycle event handlers */
@@ -91,18 +91,18 @@ void uninstall() {
 /* START: Commands */
 
 void on() {
-    log.trace("on")
+    //log.trace("on")
     if (settings?.serialNumber == null) {
         throw new Exception("Serial number not set")
     }
 
     parent.setMachinePower(settings?.serialNumber, true)
 
-    log.trace("on (completed)")
+    //log.trace("on (completed)")
 }
 
 void off() {
-    log.trace("off")
+    //log.trace("off")
 
     if (settings?.serialNumber == null) {
         throw new Exception("Serial number not set")
@@ -110,11 +110,11 @@ void off() {
 
     parent.setMachinePower(settings?.serialNumber, false)
 
-    log.trace("off (completed)")
+    //log.trace("off (completed)")
 }
 
 void reset() {
-    log.trace("reset")
+    //log.trace("reset")
     
     disconnect()
 
@@ -136,16 +136,16 @@ void reset() {
 
     initialize()
 
-    log.trace("reset (completed)")
+    //log.trace("reset (completed)")
 }
 
 void disconnect() {
-    log.trace("disconnect")
+    //log.trace("disconnect")
 
     unsubscribeFromDashboard()
     interfaces.webSocket.close()
 
-    log.trace("disconnect (completed)")
+    //log.trace("disconnect (completed)")
 }
 
 /* END: Commands */
@@ -153,7 +153,7 @@ void disconnect() {
 /* START: Communication */
 
 void initializeStreaming() {
-    log.trace("initializeStreaming")
+    //log.trace("initializeStreaming")
 
     disconnect()
 
@@ -165,21 +165,21 @@ void initializeStreaming() {
 
     interfaces.webSocket.connect(streamingEndpoint)
 
-    log.trace("initializeStreaming (completed)")
+    //log.trace("initializeStreaming (completed)")
 }
 
 void webSocketStatus(String status) {
-    log.trace("webSocketStatus")
+    //log.trace("webSocketStatus")
 
     if (status.startsWith("status: open")) {
         sendConnectMessage()
     }
 
-    log.trace("webSocketStatus (completed)")
+    //log.trace("webSocketStatus (completed)")
 }
 
 void sendConnectMessage() {
-    log.trace("sendConnectMessage")
+    //log.trace("sendConnectMessage")
 
     String accessToken = parent.getAccessToken();
 
@@ -195,16 +195,13 @@ void sendConnectMessage() {
     ]
     String message = formatStompMessage("CONNECT", headers, null)
 
-    log.info("connect message is...");
-    log.info(message)
-
     interfaces.webSocket.sendMessage(message)
 
-    log.trace("sendConnectMessage (completed)")
+    //log.trace("sendConnectMessage (completed)")
 }
 
 void subscribeToDashboard() {
-    log.trace("subscribeToDashboard")
+    //log.trace("subscribeToDashboard")
 
     state.dashboardSubscriptionId = UUID.randomUUID().toString()
 
@@ -219,11 +216,11 @@ void subscribeToDashboard() {
 
     interfaces.webSocket.sendMessage(message)
 
-    log.trace("subscribeToDashboard (completed)")
+    //log.trace("subscribeToDashboard (completed)")
 }
 
 void unsubscribeFromDashboard() {
-    log.trace("unsubscribeFromDashboard")
+    //log.trace("unsubscribeFromDashboard")
 
     if (state.dashboardSubscriptionId == null) {
         //log.info("Cannot unsubscribe from dashboard because the subscription id does not exist in the settings")
@@ -238,12 +235,11 @@ void unsubscribeFromDashboard() {
 
     interfaces.webSocket.sendMessage(message)
 
-    log.trace("unsubscribeFromDashboard (completed)")
+    //log.trace("unsubscribeFromDashboard (completed)")
 }
 
 void parse(String message) {
-    log.trace("parse")
-    log.info("parse(\"${message}\")")
+    //log.trace("parse")
 
     parseStompMessage(message) {
         messageType, headers, body -> 
@@ -261,31 +257,31 @@ void parse(String message) {
             }
     }
 
-    log.trace("parse (completed)")
+    //log.trace("parse (completed)")
 }
 
 void handleDashboardMessage(String message) {
-    log.trace("handleDashboardMessage")
+    //log.trace("handleDashboardMessage")
 
     JsonSlurper jsonSlurper = new JsonSlurper()
     def messageData = jsonSlurper.parseText(message)
 
     if (!(messageData instanceof Map)) { 
-        log.trace("handleDashboardMessage (returning early because messageData is not a map)")
+        //log.trace("handleDashboardMessage (returning early because messageData is not a map)")
         log.warn("Unsupported message received from API:\n${message}")
         return
     }
     
     handleDashboard(messageData)
 
-    log.trace("handleDashboardMessage (completed)")
+    //log.trace("handleDashboardMessage (completed)")
 }
 
 void handleDashboard(Map<String, Object> dashboard) {
-    log.trace("handleDashboard")
+    //log.trace("handleDashboard")
 
     if (dashboard?.widgets == null || !(dashboard.widgets instanceof List)) {
-        log.trace("handleDashboard (returning early because input is unexpected)")
+        //log.trace("handleDashboard (returning early because input is unexpected)")
         return
     }
 
@@ -302,60 +298,60 @@ void handleDashboard(Map<String, Object> dashboard) {
         log.error(ex)
     }
 
-    log.trace("handleDashboard (completed)")
+    //log.trace("handleDashboard (completed)")
 }
 
 
 void handleMachineState(Map<String, Object> widget) {
-    log.trace("handleMachineState")
+    //log.trace("handleMachineState")
 
     if (widget?.output == null) {
-        log.trace("handleMachineState (returning because input is null)")
+        //log.trace("handleMachineState (returning because input is null)")
         return
     }
     updateMachineState(widget.output.status)
 
-    log.trace("handleMachineState (completed)")
+    //log.trace("handleMachineState (completed)")
 }
 
 void handleCoffeeBoiler(Map<String, Object> widget) {
-    log.trace("handleCoffeeBoiler")
+    //log.trace("handleCoffeeBoiler")
 
     if (widget?.output == null) {
-        log.trace("handleCoffeeBoiler (returning because input is null)")
+        //log.trace("handleCoffeeBoiler (returning because input is null)")
         return
     }
 
     updateWaterLevel(widget.output.status != "NoWater");
     updateEspressBoilerStatus(widget.output.status, widget.output.targetTemperature)
 
-    log.trace("handleCoffeeBoiler (completed)")
+    //log.trace("handleCoffeeBoiler (completed)")
 }
 
 void handleSteamBoiler(Map<String, Object> widget) {
-    log.trace("handleSteamBoiler")
+    //log.trace("handleSteamBoiler")
 
     if (widget?.output == null) {
-        log.trace("handleSteamBoiler (returning because input is null)")
+        //log.trace("handleSteamBoiler (returning because input is null)")
         return
     }
 
     updateSteamBoilerStatus(widget.output.status, widget.output.enabled)
 
-    log.trace("handleSteamBoiler (completed)")
+    //log.trace("handleSteamBoiler (completed)")
 }
 
 void refreshAll() {
-    log.trace("refreshAll")
+    //log.trace("refreshAll")
 
     refreshDashboard()
     refreshConfig()
 
-    log.trace("refreshAll (completed)")
+    //log.trace("refreshAll (completed)")
 }
 
 void refreshDashboard() {
-    log.trace("refreshDashboard")
+    //log.trace("refreshDashboard")
 
     if (settings?.serialNumber == null) {
         throw new Exception("Device Serial Number is required")
@@ -366,11 +362,11 @@ void refreshDashboard() {
         handleDashboard(dashboard)
     }
 
-    log.trace("refreshDashboard (completed)")
+    //log.trace("refreshDashboard (completed)")
 }
 
 void refreshConfig() {
-    log.trace("refreshConfig")
+    //log.trace("refreshConfig")
 
     if (settings?.serialNumber == null) {
         throw new Exception("Device Serial Number is required")
@@ -381,14 +377,14 @@ void refreshConfig() {
         handleConfigUpdate(config)
     }
 
-    log.trace("refreshConfig (completed)")
+    //log.trace("refreshConfig (completed)")
 }
 
 void handleConfigUpdate(Map<String, Object> config) {
-    log.trace("handleConfigUpdate")
+    //log.trace("handleConfigUpdate")
 
     if (config == null) {
-        log.trace("handleConfigUpdate (returning early because config is null)")
+        //log.trace("handleConfigUpdate (returning early because config is null)")
         return
     }
 
@@ -398,48 +394,48 @@ void handleConfigUpdate(Map<String, Object> config) {
 
     updateFirmware(config.actualFirmwares.find{it.type == "Machine"}, config.actualFirmwares.find{it.type == "Gateway"})
 
-    log.trace("handleConfigUpdate (completed)")
+    //log.trace("handleConfigUpdate (completed)")
 }
 
 void updateLastUpdated() {
-    log.trace("updateLastUpdated")
+    //log.trace("updateLastUpdated")
 
     DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     sendEvent(name: "lastUpdated", value: LocalDateTime.now().format(formatter))
 
-    log.trace("updateLastUpdated (completed)")
+    //log.trace("updateLastUpdated (completed)")
 }
 
 void updateName(String name) {
-    log.trace("updateName")
+    //log.trace("updateName")
 
     if (name == null || name.trim() == "") {
-        log.trace("updateName (returning early because input is null or empty)")
+        //log.trace("updateName (returning early because input is null or empty)")
         return
     }
 
     sendEvent(name: "name", value: name)
 
-    log.trace("updateName (completed)")
+    //log.trace("updateName (completed)")
 }
 
 void updateModel(String model) {
-    log.trace("updateModel")
+    //log.trace("updateModel")
 
     if (model == null || model.trim() == "") {
-        log.trace("updateModel (returning early because input is null or empty)")
+        //log.trace("updateModel (returning early because input is null or empty)")
         return
     }
     
     sendEvent(name: "manufacturer", value: "La Marzocco")
     sendEvent(name: "model", value: model)
 
-    log.trace("updateModel (completed)")
+    //log.trace("updateModel (completed)")
 }
 
 void updateFirmware(Map<String, Object> machineFirmware, Map<String, Object> gatewayFirmware) {
-    log.trace("updateFirmware")
+    //log.trace("updateFirmware")
 
     if (machineFirmware != null) {
         sendEvent(name: "firmwareVersion", value: machineFirmware?.buildVersion)
@@ -449,19 +445,19 @@ void updateFirmware(Map<String, Object> machineFirmware, Map<String, Object> gat
         sendEvent(name: "gatewayFirmware", value: gatewayFirmware?.buildVersion)
     }
 
-    log.trace("updateFirmware (completed)")
+    //log.trace("updateFirmware (completed)")
 }
 
 void updateConnected(Boolean connected) {
-    log.trace("updateConnected")
+    //log.trace("updateConnected")
 
     sendEvent(name: "online", value: connected ? "connected" : "disconnected")
 
-    log.trace("updateConnected (completed)")
+    //log.trace("updateConnected (completed)")
 }
 
 void updateMachineState (String state) {
-    log.trace("updateMachineState")
+    //log.trace("updateMachineState")
 
     if ("PoweredOn".equalsIgnoreCase(state)) {
         sendEvent(name: "switch", value: "on") 
@@ -470,29 +466,29 @@ void updateMachineState (String state) {
         sendEvent(name: "switch", value: "off")
     }
 
-    log.trace("updateMachineState (completed)")
+    //log.trace("updateMachineState (completed)")
 }
 
 void updateEspressBoilerStatus (String status, Double targetTemp) {
-    log.trace("updateEspressBoilerStatus")
+    //log.trace("updateEspressBoilerStatus")
     
     sendEvent(name: "coffeeBoilerStatus", value: status)
     sendEvent(name: "coffeeBoilerTargetTemperature", value: targetTemp, unit: "C", descriptionText: "${device.displayName} target temperature is ${targetTemp}")
 
-    log.trace("updateEspressBoilerStatus (completed)")
+    //log.trace("updateEspressBoilerStatus (completed)")
 }
 
 void updateSteamBoilerStatus (String status, Boolean enabled) {
-    log.trace("updateSteamBoilerStatus")
+    //log.trace("updateSteamBoilerStatus")
     
     sendEvent(name: "steamBoilerStatus", value: status)
     sendEvent(name: "steamBoilerEnabled", value: enabled)
 
-    log.trace("updateSteamBoilerStatus (completed)")
+    //log.trace("updateSteamBoilerStatus (completed)")
 }
 
 void updateWaterLevel (Boolean hasWater) {
-    log.trace("updateWaterLevel")
+    //log.trace("updateWaterLevel")
     
     if (hasWater == true) {
         sendEvent(name: "waterLevel", value: "full", descriptionText: "${device.displayName} has water in the tank")    
@@ -501,7 +497,7 @@ void updateWaterLevel (Boolean hasWater) {
         sendEvent(name: "waterLevel", value: "empty", descriptionText: "${device.displayName} needs to be filled")
     }
 
-    log.trace("updateWaterLevel (completed)")
+    //log.trace("updateWaterLevel (completed)")
 }
 
 /* END: Utility Methods */

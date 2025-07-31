@@ -44,24 +44,24 @@ preferences {
 }
 
 def startPage() {
-    log.trace("startPage")
+    //log.trace("startPage")
 
     if (state.accessToken == null) {
-        log.trace("startPage (returning authPage)")
+        //log.trace("startPage (returning authPage)")
         return authPage()
     }
     else {
-        log.trace("startPage (returning listDevicesPage)")
+        //log.trace("startPage (returning listDevicesPage)")
         return listDevicesPage()
     }
 }
 
 def authPage() {
-    log.trace("authPage")
+    //log.trace("authPage")
 
 	def description = "Tap to enter Credentials."
 
-    log.trace("authPage (returning)")
+    //log.trace("authPage (returning)")
 
 	return dynamicPage(name: "Credentials", title: "Authorize Connection", nextPage:"loginInterstitial", uninstall: false , install:false) {
 	   section("La Marzocco Home Credentials") {
@@ -77,7 +77,7 @@ def authPage() {
 }
 
 def loginInterstitialPage() {
-    log.trace("loginInterstitialPage")
+    //log.trace("loginInterstitialPage")
 
     if (settings?.apiHost == null) {
         throw new Exception("apiHost is required")
@@ -108,13 +108,13 @@ def loginInterstitialPage() {
             login(settings.apiHost, settings.customerEndpoint, settings.username, settings.password) {
                 newAccessToken, newAccessTokenExpires, newRefreshToken ->
 
-                log.trace("login - login - closure")
+                //log.trace("login - login - closure")
 
                 state.accessToken = newAccessToken
                 state.accessTokenExpires = "DateTime: ${newAccessTokenExpires.format(formatter)}"
                 state.refreshToken = newRefreshToken
 
-                log.trace("login - login - closure (complete)")
+                //log.trace("login - login - closure (complete)")
             }
         }
         catch (Exception ex) {
@@ -124,7 +124,7 @@ def loginInterstitialPage() {
 
     app.removeSetting("password")
 
-    log.trace("loginInterstitialPage (returning)")
+    //log.trace("loginInterstitialPage (returning)")
 
     if (state.accessToken != null) {
         return listDevicesPage()
@@ -135,7 +135,7 @@ def loginInterstitialPage() {
 }
 
 def listDevicesPage() {
-    log.trace("listDevicesPage")
+    //log.trace("listDevicesPage")
 
     try {
         refreshAccessToken()
@@ -155,9 +155,7 @@ def listDevicesPage() {
             coffeeMachines = things
     }
 
-    log.info(coffeeMachines)
-
-    log.trace("listDevicesPage (returning)")
+    //log.trace("listDevicesPage (returning)")
 
 	return dynamicPage(name: "listDevices", title: "Choose Espresso Machines", install:false, uninstall:false, nextPage: "complete") {
         section("Espresso Machines") {
@@ -171,7 +169,7 @@ def listDevicesPage() {
 }
 
 def completePage() {
-    log.trace("completePage")
+    //log.trace("completePage")
 
     Map<String, ChildDeviceWrapper> childDevices = getChildDevicesBySerialNumber()
     
@@ -187,7 +185,7 @@ def completePage() {
         }
     }
 
-    log.trace("completePage (returning)")
+    //log.trace("completePage (returning)")
 
     return dynamicPage(name: "Complete", title: "Setup Complete", install:true, uninstall: false) {
         section("Complete") {
@@ -197,11 +195,11 @@ def completePage() {
 }
 
 def badAuthPage(){
-    log.trace("badAuthPage")
+    //log.trace("badAuthPage")
 
     log.error "Unable to get access token"
 
-    log.trace("badAuthPage (returning)")
+    //log.trace("badAuthPage (returning)")
 
     return dynamicPage(name: "badCredentials", title: "Invalid Username and Password", install:false, uninstall:true, nextPage: authPage) {
         section("Error") {
@@ -211,7 +209,7 @@ def badAuthPage(){
 }
 
 Map<String, ChildDeviceWrapper> getChildDevicesBySerialNumber() {
-    log.trace("getChildDevicesBySerialNumber")
+    //log.trace("getChildDevicesBySerialNumber")
 
     Map<String, ChildDeviceWrapper> childDevices = [:]
 
@@ -225,14 +223,14 @@ Map<String, ChildDeviceWrapper> getChildDevicesBySerialNumber() {
         childDevices[serialNumber] = it
     }
 
-    log.trace("getChildDevicesBySerialNumber (returning)")
+    //log.trace("getChildDevicesBySerialNumber (returning)")
 
     return childDevices
 
 }
 
 List<String> getChildDeviceSerialNumbers() {
-    log.trace("getChildDeviceSerialNumbers")
+    //log.trace("getChildDeviceSerialNumbers")
 
     List<String> childDeviceSerialNumbers = []
 
@@ -246,32 +244,32 @@ List<String> getChildDeviceSerialNumbers() {
         childDeviceSerialNumbers.add(serialNumber)
     }
 
-    log.trace("getChildDeviceSerialNumbers (returning)")
+    //log.trace("getChildDeviceSerialNumbers (returning)")
 
     return childDeviceSerialNumbers
 
 }
 
 void addEspressoMachine(String serialNumber) {
-    log.trace("addEspressoMachine")
+    //log.trace("addEspressoMachine")
 
     ChildDeviceWrapper newDevice = addChildDevice("derekchoate", "La Marzocco Home Espresso Machine", serialNumber)
     newDevice.updateSetting("serialNumber", serialNumber)
     newDevice.initialize()
 
-    log.trace("addEspressoMachine (complete)")
+    //log.trace("addEspressoMachine (complete)")
 }
 
 void removeEspressoMachine(ChildDeviceWrapper device) {
-    log.trace("removeEspressoMachine")
+    //log.trace("removeEspressoMachine")
 
     deleteChildDevice(device.getDeviceNetworkId())
 
-    log.trace("removeEspressoMachine (complete)")
+    //log.trace("removeEspressoMachine (complete)")
 }
 
 void refreshAccessToken() {
-    log.trace("refreshAccessToken")
+    //log.trace("refreshAccessToken")
 
     DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
 
@@ -281,7 +279,7 @@ void refreshAccessToken() {
         
         if (LocalDateTime.now().isBefore(accessTokenExpires)) {
             //token still valid
-            log.trace("refreshAccessToken (returning because access token is valid)")
+            //log.trace("refreshAccessToken (returning because access token is valid)")
             return
         }
     }
@@ -305,13 +303,13 @@ void refreshAccessToken() {
     try {
         refreshAccessToken(settings?.apiHost, settings?.customerEndpoint, settings?.username, state.refreshToken) 
         {   accessToken, accessTokenExpires, newRefreshToken ->
-                log.trace("refreshAccessToken - refreshAccessToken - closure")
+                //log.trace("refreshAccessToken - refreshAccessToken - closure")
 
                 state.accessToken = accessToken
                 state.accessTokenExpires = "DateTime: " + accessTokenExpires.format(formatter)
                 state.refreshToken = newRefreshToken
 
-                log.trace("refreshAccessToken - refreshAccessToken - closure (complete)")
+                //log.trace("refreshAccessToken - refreshAccessToken - closure (complete)")
         }
     }
     catch (Exception ex) {
@@ -320,30 +318,30 @@ void refreshAccessToken() {
         throw ex
     }
 
-    log.trace("refreshAccessToken (complete)")
+    //log.trace("refreshAccessToken (complete)")
 }
 
 /* Device Commands */
 
 String getApiHost() {
-    log.trace("getApiHost (immediate return)")
+    //log.trace("getApiHost (immediate return)")
 
     return settings?.apiHost;
 }
 
 String getAccessToken() {
-    log.trace("getAccessToken")
+    //log.trace("getAccessToken")
 
     refreshAccessToken()
 
-    log.trace("getAccessToken (returning)")
+    //log.trace("getAccessToken (returning)")
 
     return state.accessToken
 }
 
 String getStreamingEndpoint() {
 
-    log.trace("getStreamingEndpoint")
+    //log.trace("getStreamingEndpoint")
 
     if (settings?.apiHost == null) {
         throw new Exception("apiHost was not found in settings")
@@ -353,13 +351,13 @@ String getStreamingEndpoint() {
         throw new Exception("streamingEndpoint was not found in settings")
     }
 
-    log.trace("getStreamingEndpoint (returning)")
+    //log.trace("getStreamingEndpoint (returning)")
 
     return getEndpoint("STREAMING", ["apiHost" : settings?.apiHost, "streamingEndpoint" : settings?.streamingEndpoint])
 }
 
 void getMachineDashboard(String serialNumber, Closure handler) {
-    log.trace("getMachineDashboard")
+    //log.trace("getMachineDashboard")
 
     if (settings?.apiHost == null) {
         throw new Exception("apiHost was not found in settings")
@@ -384,12 +382,12 @@ void getMachineDashboard(String serialNumber, Closure handler) {
             handler(dashboard)
     }
 
-    log.trace("getMachineDashboard (complete)")
+    //log.trace("getMachineDashboard (complete)")
 
 }
 
 void getMachineConfig(String serialNumber, Closure handler) {
-    log.trace("getMachineConfig")
+    //log.trace("getMachineConfig")
 
     if (settings?.apiHost == null) {
         throw new Exception("apiHost was not found in settings")
@@ -414,12 +412,12 @@ void getMachineConfig(String serialNumber, Closure handler) {
             handler(settings)
     }
 
-    log.trace("getMachineConfig (complete)")
+    //log.trace("getMachineConfig (complete)")
 
 }
 
 void setMachinePower(String serialNumber, Boolean powerOn) {
-    log.trace("setMachinePower")
+    //log.trace("setMachinePower")
 
     if (settings?.apiHost == null) {
         throw new Exception("apiHost was not found in settings")
@@ -449,5 +447,5 @@ void setMachinePower(String serialNumber, Boolean powerOn) {
 
     executeCommand(settings.apiHost, settings.customerEndpoint, serialNumber, state.accessToken, getConstant("COMMAND_POWER_CHANGE_STATE"), commandParameters)
 
-    log.trace("setMachinePower (complete)")
+    //log.trace("setMachinePower (complete)")
 }
