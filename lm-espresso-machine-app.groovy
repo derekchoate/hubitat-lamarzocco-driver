@@ -14,13 +14,14 @@
  *
  *  1/11/2024 V0.9.0-alpha Alpha version with support for Machine State (on/off), Espresso Boiler temperature, and Water Level
  *  4/11/2024 V0.9.1-alpha Alpha fixed bug in access token refresh handling
+ *  31/7/2025 v2.0.0-alpha Alpha version with support for latest gateway firmware (v5.2.7)
  */
 
 #include derekchoate.lmCommon
 import com.hubitat.app.ChildDeviceWrapper
 import groovy.transform.Field
 
-def version() {"0.9.1-alpha"}
+def version() {"2.0.0-alpha"}
 
 @Field final Boolean debug = true
 
@@ -44,10 +45,13 @@ preferences {
 
 def startPage() {
     log.trace("startPage")
+
     if (state.accessToken == null) {
+        log.trace("startPage (returning authPage)")
         return authPage()
     }
     else {
+        log.trace("startPage (returning listDevicesPage)")
         return listDevicesPage()
     }
 }
@@ -56,17 +60,18 @@ def authPage() {
     log.trace("authPage")
 
 	def description = "Tap to enter Credentials."
+
+    log.trace("authPage (returning)")
+
 	return dynamicPage(name: "Credentials", title: "Authorize Connection", nextPage:"loginInterstitial", uninstall: false , install:false) {
 	   section("La Marzocco Home Credentials") {
             input (name: "username", type: "text", title: "Your La Marzocco Username", required: true)
             input (name: "password", type: "password", title: "Your La Marzocco Password", required: true)
         }
         section(hideable: true, hidden: true, "Advanced Settings") {
-            input (name: "clientId", type: "text", title: "Client Id", defaultValue: "7_1xwei9rtkuckso44ks4o8s0c0oc4swowo00wgw0ogsok84kosg", required: true)
-            input (name: "clientSecret", type: "text", title: "Client Secret", defaultValue: "2mgjqpikbfuok8g4s44oo4gsw0ks44okk4kc4kkkko0c8soc8s", required: true)
-            input (name: "tokenEndpoint", type: "text", title: "Token Endpoint", defaultValue: "https://cms.lamarzocco.io/oauth/v2/token", required: true)
-            input (name: "customerEndpoint", type: "text", title: "Customer Endpoint", defaultValue: "https://cms.lamarzocco.io/api/customer", required: true)
-            input (name: "deviceEndpoint", type: "text", title: "Device Endpoint", defaultValue: "https://gw-lmz.lamarzocco.io/v1/home/machines", required: true)
+            input (name: "apiHost", type: "text", title: "API Host", defaultValue: "lion.lamarzocco.io", required: true)
+            input (name: "customerEndpoint", type: "text", title: "Customer API Endpoint", defaultValue: "/api/customer-app", required: true)
+            input (name: "streamingEndpoint", type: "text", title: "Streaming API Endpoint", defaultValue: "/ws/connect", required: true)
         }
 	}
 }
@@ -74,11 +79,19 @@ def authPage() {
 def loginInterstitialPage() {
     log.trace("loginInterstitialPage")
 
-    if (settings.username == null) {
+    if (settings?.apiHost == null) {
+        throw new Exception("apiHost is required")
+    }
+
+    if (settings?.customerEndpoint == null) {
+        throw new Exception("customerEndpoint is required")
+    }
+
+    if (settings?.username == null) {
         throw new Exception("Username is required")
     }
 
-    if (settings.password == null) {
+    if (settings?.password == null) {
         throw new Exception("Password is required")
     }
 
@@ -92,12 +105,16 @@ def loginInterstitialPage() {
 
  	if (state.accessToken == null || LocalDateTime.now().isAfter(accessTokenExpires)){
         try {
-            login(settings.tokenEndpoint, settings.username, settings.password, settings.clientId, settings.clientSecret) {
+            login(settings.apiHost, settings.customerEndpoint, settings.username, settings.password) {
                 newAccessToken, newAccessTokenExpires, newRefreshToken ->
+
+                log.trace("login - login - closure")
 
                 state.accessToken = newAccessToken
                 state.accessTokenExpires = "DateTime: ${newAccessTokenExpires.format(formatter)}"
                 state.refreshToken = newRefreshToken
+
+                log.trace("login - login - closure (complete)")
             }
         }
         catch (Exception ex) {
@@ -106,6 +123,8 @@ def loginInterstitialPage() {
     }
 
     app.removeSetting("password")
+
+    log.trace("loginInterstitialPage (returning)")
 
     if (state.accessToken != null) {
         return listDevicesPage()
@@ -122,20 +141,33 @@ def listDevicesPage() {
         refreshAccessToken()
     }
     catch (Exception ex) {
+        log.error("An exception occurred whilst refreshing the access token")
+        log.error(ex)
         return authPage()
     }
 
-    Map<String, String> options = null
-
-	getRegisteredMachines(settings.customerEndpoint, state.accessToken) {
-        machines -> options = machines
+    //List of coffee machines that have been registered with the cloud service
+    Map<String, String> coffeeMachines
+    
+    //Retreive the list of registered machines
+	getRegisteredMachines(settings.apiHost, settings.customerEndpoint, state.accessToken) {
+        things -> 
+            coffeeMachines = things
     }
 
-	dynamicPage(name: "listDevices", title: "Choose Espresso Machines", install:false, uninstall:false, nextPage: "complete") {
-		section("Espresso Machines") {
-			input "espressoMachines", "enum", title: "Select Machine(s)", required: false, multiple: true, options: options
-		}
-	}
+    log.info(coffeeMachines)
+
+    log.trace("listDevicesPage (returning)")
+
+	return dynamicPage(name: "listDevices", title: "Choose Espresso Machines", install:false, uninstall:false, nextPage: "complete") {
+        section("Espresso Machines") {
+        	input "espressoMachines", "enum", 
+                title: "Select Machine(s)", 
+                required: false, 
+                multiple: true, 
+                options: coffeeMachines
+        }
+	}    
 }
 
 def completePage() {
@@ -155,6 +187,8 @@ def completePage() {
         }
     }
 
+    log.trace("completePage (returning)")
+
     return dynamicPage(name: "Complete", title: "Setup Complete", install:true, uninstall: false) {
         section("Complete") {
             paragraph "The devices have been setup successfully"
@@ -166,6 +200,9 @@ def badAuthPage(){
     log.trace("badAuthPage")
 
     log.error "Unable to get access token"
+
+    log.trace("badAuthPage (returning)")
+
     return dynamicPage(name: "badCredentials", title: "Invalid Username and Password", install:false, uninstall:true, nextPage: authPage) {
         section("Error") {
             paragraph "Please check your username and password"
@@ -188,7 +225,30 @@ Map<String, ChildDeviceWrapper> getChildDevicesBySerialNumber() {
         childDevices[serialNumber] = it
     }
 
+    log.trace("getChildDevicesBySerialNumber (returning)")
+
     return childDevices
+
+}
+
+List<String> getChildDeviceSerialNumbers() {
+    log.trace("getChildDeviceSerialNumbers")
+
+    List<String> childDeviceSerialNumbers = []
+
+    getAllChildDevices().each {
+        String serialNumber = it.getSetting("serialNumber")
+
+        if (serialNumber == null) {
+            log.error "Device ${it.getDisplayName()} (${it.getDeviceNetworkId()}) does not have a serial number set"
+        }
+
+        childDeviceSerialNumbers.add(serialNumber)
+    }
+
+    log.trace("getChildDeviceSerialNumbers (returning)")
+
+    return childDeviceSerialNumbers
 
 }
 
@@ -198,12 +258,16 @@ void addEspressoMachine(String serialNumber) {
     ChildDeviceWrapper newDevice = addChildDevice("derekchoate", "La Marzocco Home Espresso Machine", serialNumber)
     newDevice.updateSetting("serialNumber", serialNumber)
     newDevice.initialize()
+
+    log.trace("addEspressoMachine (complete)")
 }
 
 void removeEspressoMachine(ChildDeviceWrapper device) {
     log.trace("removeEspressoMachine")
 
     deleteChildDevice(device.getDeviceNetworkId())
+
+    log.trace("removeEspressoMachine (complete)")
 }
 
 void refreshAccessToken() {
@@ -217,41 +281,37 @@ void refreshAccessToken() {
         
         if (LocalDateTime.now().isBefore(accessTokenExpires)) {
             //token still valid
+            log.trace("refreshAccessToken (returning because access token is valid)")
             return
         }
     }
 
-    String tokenEndpoint = settings?.tokenEndpoint
-    String refreshToken = settings?.refreshToken
-    String clientId = settings?.clientId
-    String clientSecret = settings?.clientSecret
-
-    if (tokenEndpoint == null) {
-        throw new Exception("tokenEndpoint is required to refresh the access token")
+    if (settings?.apiHost == null) {
+        throw new Exception("apiHost is required to be defined in settings")
     }
 
-    if (state.refreshToken != null) {
-        refreshToken = state.refreshToken
+    if (settings?.customerEndpoint == null) {
+        throw new Exception("customerEndpoint is required to be defined in settings")
     }
 
-    if (refreshToken == null) {
-        throw new Exception("tokenEndpoint is required to refresh the access token")
+    if (settings?.username == null) {
+        throw new Exception("Username is required")
     }
 
-    if (clientId == null) {
-        throw new Exception("clientId is required to refresh the access token")
-    }
-
-    if (clientSecret == null) {
-        throw new Exception("clientSecret is required to refresh the access token")
+    if (state.refreshToken == null) {
+        throw new Exception("refreshToken is missing from the state, please login again")
     }
 
     try {
-        refreshAccessToken(tokenEndpoint, refreshToken, clientId, clientSecret) 
+        refreshAccessToken(settings?.apiHost, settings?.customerEndpoint, settings?.username, state.refreshToken) 
         {   accessToken, accessTokenExpires, newRefreshToken ->
-            state.accessToken = accessToken
-            state.accessTokenExpires = "DateTime: " + accessTokenExpires.format(formatter)
-            state.refreshToken = newRefreshToken
+                log.trace("refreshAccessToken - refreshAccessToken - closure")
+
+                state.accessToken = accessToken
+                state.accessTokenExpires = "DateTime: " + accessTokenExpires.format(formatter)
+                state.refreshToken = newRefreshToken
+
+                log.trace("refreshAccessToken - refreshAccessToken - closure (complete)")
         }
     }
     catch (Exception ex) {
@@ -259,78 +319,135 @@ void refreshAccessToken() {
         app.removeSetting("accessTokenExpires")
         throw ex
     }
+
+    log.trace("refreshAccessToken (complete)")
 }
 
-void refreshMachineDetails(String serialNumber, Closure responseHandler) {
-    log.trace("refreshMachineDetails")
+/* Device Commands */
+
+String getApiHost() {
+    log.trace("getApiHost (immediate return)")
+
+    return settings?.apiHost;
+}
+
+String getAccessToken() {
+    log.trace("getAccessToken")
+
+    refreshAccessToken()
+
+    log.trace("getAccessToken (returning)")
+
+    return state.accessToken
+}
+
+String getStreamingEndpoint() {
+
+    log.trace("getStreamingEndpoint")
+
+    if (settings?.apiHost == null) {
+        throw new Exception("apiHost was not found in settings")
+    }
+
+    if (settings?.streamingEndpoint == null) {
+        throw new Exception("streamingEndpoint was not found in settings")
+    }
+
+    log.trace("getStreamingEndpoint (returning)")
+
+    return getEndpoint("STREAMING", ["apiHost" : settings?.apiHost, "streamingEndpoint" : settings?.streamingEndpoint])
+}
+
+void getMachineDashboard(String serialNumber, Closure handler) {
+    log.trace("getMachineDashboard")
+
+    if (settings?.apiHost == null) {
+        throw new Exception("apiHost was not found in settings")
+    }
 
     if (settings?.customerEndpoint == null) {
-        throw new Exception("Customer Endpoint is required")
+        throw new Exception("customerEndpoint was not found in settings")
     }
 
     if (serialNumber == null) {
-        throw new Exception("Device Serial Number is required")
+        throw new Exception("serialNumber Number is required")
     }
 
     refreshAccessToken()
 
     if (state.accessToken == null) {
-        throw new Exception("There is no access token stored in state")
+        throw new Exception("There is no access token stored in state, please login again")
     }
 
-    log.trace("(in app) getting machine details for ${serialNumber}")
-
-    getMachineDetails(settings?.customerEndpoint, serialNumber, state.accessToken) 
-
-    {communicationKey, modelName -> 
-        responseHandler(communicationKey, modelName)
+    getMachineDashboard(settings?.apiHost, settings?.customerEndpoint, serialNumber, state.accessToken) {
+        dashboard ->
+            handler(dashboard)
     }
+
+    log.trace("getMachineDashboard (complete)")
+
 }
 
-void refreshMachineIpAddress(String serialNumber, Closure responseHandler) {
-    log.trace("refreshMachineIpAddress")
+void getMachineConfig(String serialNumber, Closure handler) {
+    log.trace("getMachineConfig")
 
-    if (settings?.deviceEndpoint == null) {
-        throw new Exception("Device Endpoint is required")
+    if (settings?.apiHost == null) {
+        throw new Exception("apiHost was not found in settings")
+    }
+
+    if (settings?.customerEndpoint == null) {
+        throw new Exception("customerEndpoint was not found in settings")
     }
 
     if (serialNumber == null) {
-        throw new Exception("Device Serial Number is required")
+        throw new Exception("serialNumber Number is required")
     }
 
     refreshAccessToken()
 
     if (state.accessToken == null) {
-        throw new Exception("There is no access token stored in state")
+        throw new Exception("There is no access token stored in state, please login again")
     }
 
-    getMachineIpAddress(settings?.deviceEndpoint, serialNumber, state.accessToken)
-    {ipAddress -> 
-        responseHandler(ipAddress)
+    getMachineConfig(settings?.apiHost, settings?.customerEndpoint, serialNumber, state.accessToken) {
+        settings ->
+            handler(settings)
     }
+
+    log.trace("getMachineConfig (complete)")
+
 }
 
+void setMachinePower(String serialNumber, Boolean powerOn) {
+    log.trace("setMachinePower")
 
-void setMachineStatus(String serialNumber, String status) {
-    log.trace("setMachineStatus")
+    if (settings?.apiHost == null) {
+        throw new Exception("apiHost was not found in settings")
+    }
 
-    if (settings?.deviceEndpoint == null) {
-        throw new Exception("Device Endpoint is required")
+    if (settings?.customerEndpoint == null) {
+        throw new Exception("customerEndpoint was not found in settings")
     }
 
     if (serialNumber == null) {
-        throw new Exception("Device Serial Number is required")
+        throw new Exception("serialNumber Number is required")
     }
 
-    if (status == null) {
-        throw new Exception("state is required")
+    if (powerOn == null) {
+        throw new Exception("powerOn is required")
     }
 
     refreshAccessToken()
 
     if (state.accessToken == null) {
-        throw new Exception("There is no access token stored in state")
+        throw new Exception("There is no access token stored in state, please login again")
     }
 
-    setMachineStatus(settings?.deviceEndpoint, serialNumber, state.accessToken, status)
+    Map<String, Object> commandParameters = [
+        "mode" : powerOn ? getConstant("POWER_STATE_ACTIVE") : getConstant("POWER_STATE_STANDBY")
+    ]
+
+    executeCommand(settings.apiHost, settings.customerEndpoint, serialNumber, state.accessToken, getConstant("COMMAND_POWER_CHANGE_STATE"), commandParameters)
+
+    log.trace("setMachinePower (complete)")
 }

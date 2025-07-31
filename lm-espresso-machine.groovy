@@ -1,7 +1,7 @@
 /**
  *  La Marzocco Espresso Machine driver for Hubitat
  *
- *  Copyright 2024 Derek Choate
+ *  Copyright 2025 Derek Choate
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
@@ -13,6 +13,7 @@
  *  for the specific language governing permissions and limitations under the License.
  *
  *  1/11/2024 V0.9.0-alpha Alpha version with support for Machine State (on/off), Espresso Boiler temperature, and Water Level
+ *  31/7/2025 v2.0.0-alpha Alpha version with support for latest gateway firmware (v5.2.7)
  */
 #include derekchoate.lmCommon
 import groovy.transform.Field
@@ -20,26 +21,31 @@ import groovy.time.TimeCategory
 import com.hubitat.app.ChildDeviceWrapper
 import java.time.*
 import java.time.format.*
+import java.util.UUID
 import groovy.json.*
 
-def version() {"0.9.1-alpha"}
+def version() {"2.0.0-alpha"}
 
 @Field final Boolean debug = true
 
 metadata {
     definition (name: "La Marzocco Home Espresso Machine", namespace: "derekchoate", author: "Derek Choate", importUrl: "https://raw.githubusercontent.com/derekchoate/hubitat-lamarzocco-driver/release/latest/lm-espresso-machine.groovy" ) {
         capability "Initialize"
-        capability "Polling"
         capability "Switch"
-        capability "TemperatureMeasurement"
 
         attribute "switch", "enum", ["off", "on"]
+        attribute "online", "enum", ["disconnected", "connected"]
         attribute "waterLevel", "enum", ["full", "empty"]
-        attribute "temperature", "number"
+        attribute "coffeeBoilerStatus", "enum", ["StandBy", "HeatingUp", "Ready", "NoWater"]
+        attribute "coffeeBoilerTargetTemperature", "decimal"
+        attribute "steamBoilerStatus", "enum", ["Off", "StandBy", "HeatingUp", "Ready", "NoWater"]
+        attribute "steamBoilerEnabled", "enum", ["off", "on"]
         attribute "firmwareVersion", "String"
         attribute "gatewayFirmware", "String"
         attribute "manufacturer", "String"
         attribute "model", "String"
+        attribute "name", "String"
+        attribute "lastUpdated", "String"
 
         preferences {
             input (name: "serialNumber", type: "text", title: "Machine Serial Number")
@@ -53,21 +59,31 @@ metadata {
 /* START: driver lifecycle event handlers */
 
 void installed() {
-
+    log.trace("installed (stated / completed)")
 }
 
 void updated() {
+    log.trace("updated")
     initialize()
+    log.trace("updated (completed)")
 }
 
 void initialize() {
+    log.trace("initialize")
+
     disconnect()
     refreshAll()
     initializeStreaming()
+
+    log.trace("initialize (completed)")
 }
 
 void uninstall() {
+    log.trace("uninstall")
+
     disconnect()
+
+    log.trace("uninstall (completed)")
 }
 
 /* END: driver lifecycle event handlers */
@@ -75,33 +91,61 @@ void uninstall() {
 /* START: Commands */
 
 void on() {
+    log.trace("on")
     if (settings?.serialNumber == null) {
         throw new Exception("Serial number not set")
     }
 
-    parent.setMachineStatus(settings?.serialNumber, getConstant("MACHINE_STATUS_ON"))
+    parent.setMachinePower(settings?.serialNumber, true)
+
+    log.trace("on (completed)")
 }
 
 void off() {
+    log.trace("off")
+
     if (settings?.serialNumber == null) {
         throw new Exception("Serial number not set")
     }
 
-    parent.setMachineStatus(settings?.serialNumber, getConstant("MACHINE_STATUS_OFF"))
-}
+    parent.setMachinePower(settings?.serialNumber, false)
 
-void poll() {
-    refreshConfig()
+    log.trace("off (completed)")
 }
 
 void reset() {
-    interfaces.webSocket.close()
-    state.communicationKey = null
-    state.localIpAddress = null
+    log.trace("reset")
+    
+    disconnect()
+
+    sendEvent(name: "switch", value: "off", descriptionText: "value has been reset")
+    sendEvent(name: "online", value: "disconnected", descriptionText: "value has been reset")
+    sendEvent(name: "waterLevel", value: "full", descriptionText: "value has been reset")
+    sendEvent(name: "coffeeBoilerStatus", value: "StandBy", descriptionText: "value has been reset")
+    sendEvent(name: "coffeeBoilerTargetTemperature", value: 0.0, descriptionText: "value has been reset")
+    sendEvent(name: "steamBoilerStatus", value: "Off", descriptionText: "value has been reset")
+    sendEvent(name: "steamBoilerEnabled", value: "off", descriptionText: "value has been reset")
+    sendEvent(name: "firmwareVersion", value: "", descriptionText: "value has been reset")
+    sendEvent(name: "gatewayFirmware", value:  "", descriptionText: "value has been reset")
+    sendEvent(name: "manufacturer", value:  "", descriptionText: "value has been reset")
+    sendEvent(name: "model", value:  "", descriptionText: "value has been reset")
+    sendEvent(name: "name", value:  "", descriptionText: "value has been reset")
+    sendEvent(name: "lastUpdated", value:  "", descriptionText: "value has been reset")
+
+    state.dashboardSubscriptionId = null
+
+    initialize()
+
+    log.trace("reset (completed)")
 }
 
 void disconnect() {
+    log.trace("disconnect")
+
+    unsubscribeFromDashboard()
     interfaces.webSocket.close()
+
+    log.trace("disconnect (completed)")
 }
 
 /* END: Commands */
@@ -109,190 +153,355 @@ void disconnect() {
 /* START: Communication */
 
 void initializeStreaming() {
-    //log.trace("initializeStreaming")
-    interfaces.webSocket.close()
+    log.trace("initializeStreaming")
 
-    if (state.localIpAddress == null) {
-        throw new Exception("Local IP Address not set")
+    disconnect()
+
+    if (settings?.serialNumber == null) {
+        throw new Exception("Device Serial Number is required")
     }
 
-    if (state.communicationKey == null) {
-        throw new Exception("CommunicationKey not set")
+    String streamingEndpoint = parent.getStreamingEndpoint()
+
+    interfaces.webSocket.connect(streamingEndpoint)
+
+    log.trace("initializeStreaming (completed)")
+}
+
+void webSocketStatus(String status) {
+    log.trace("webSocketStatus")
+
+    if (status.startsWith("status: open")) {
+        sendConnectMessage()
     }
 
-    String localEndpoint = getEndpoint("STREAMING", ["localIpAddress" : state.localIpAddress])
+    log.trace("webSocketStatus (completed)")
+}
 
-    interfaces.webSocket.connect(localEndpoint, headers: ["Authorization":"Bearer ${state.communicationKey}", "Accept": "application/json"])
+void sendConnectMessage() {
+    log.trace("sendConnectMessage")
 
+    String accessToken = parent.getAccessToken();
+
+    if (accessToken == null) {
+        throw new Exception("Access token cannot be null, please re-login")
+    }
+
+    Map<String, String> headers = [
+        "host" : parent.getApiHost(),
+        "accept-version" : "1.2,1.1,1.0",
+        "heart-beat" : "0,0",
+        "Authorization" : "Bearer ${accessToken}"
+    ]
+    String message = formatStompMessage("CONNECT", headers, null)
+
+    log.info("connect message is...");
+    log.info(message)
+
+    interfaces.webSocket.sendMessage(message)
+
+    log.trace("sendConnectMessage (completed)")
+}
+
+void subscribeToDashboard() {
+    log.trace("subscribeToDashboard")
+
+    state.dashboardSubscriptionId = UUID.randomUUID().toString()
+
+    Map<String, String> headers = [
+        "destination": "/ws/sn/${settings?.serialNumber}/dashboard",
+        "ack": "auto",
+        "id": UUID.randomUUID().toString(),
+        "content-length": "0",
+    ]
+
+    String message = formatStompMessage("SUBSCRIBE", headers, null)
+
+    interfaces.webSocket.sendMessage(message)
+
+    log.trace("subscribeToDashboard (completed)")
+}
+
+void unsubscribeFromDashboard() {
+    log.trace("unsubscribeFromDashboard")
+
+    if (state.dashboardSubscriptionId == null) {
+        //log.info("Cannot unsubscribe from dashboard because the subscription id does not exist in the settings")
+        return
+    }
+
+    Map<String, String> headers = [
+        "id" : state.dashboardSubscriptionId
+    ]
+
+    String message = formatStompMessage("UNSUBSCRIBE", headers, null)
+
+    interfaces.webSocket.sendMessage(message)
+
+    log.trace("unsubscribeFromDashboard (completed)")
 }
 
 void parse(String message) {
-    //log.trace("parse")
-    //log.info("parse(\"${message}\")")
+    log.trace("parse")
+    log.info("parse(\"${message}\")")
+
+    parseStompMessage(message) {
+        messageType, headers, body -> 
+            if (messageType == "CONNECTED") {
+                subscribeToDashboard()
+            }
+            else if (messageType == "ERROR") {
+                log.error("received an error from the API:\n${message}")
+            }
+            else if (messageType != "MESSAGE") {
+                log.warn("received an unsupported message from the API:\n${message}")
+            }
+            else {
+                handleDashboardMessage(body)
+            }
+    }
+
+    log.trace("parse (completed)")
+}
+
+void handleDashboardMessage(String message) {
+    log.trace("handleDashboardMessage")
 
     JsonSlurper jsonSlurper = new JsonSlurper()
     def messageData = jsonSlurper.parseText(message)
 
-    if (messageData instanceof Map && messageData.containsKey("MachineConfiguration")) { 
-        handleConfigUpdate(jsonSlurper.parseText(messageData["MachineConfiguration"]))
+    if (!(messageData instanceof Map)) { 
+        log.trace("handleDashboardMessage (returning early because messageData is not a map)")
+        log.warn("Unsupported message received from API:\n${message}")
         return
     }
-    if (messageData instanceof List && messageData.size() >= 1 && messageData[0] instanceof Map) {
-        if (messageData[0].containsKey("CoffeeBoiler1UpdateTemperature")) {
-            updateEspressBoilerTemp(messageData[0]["CoffeeBoiler1UpdateTemperature"])
-        }
-    }
+    
+    handleDashboard(messageData)
 
+    log.trace("handleDashboardMessage (completed)")
 }
 
-void webSocketStatus(String status) {
-    //log.trace("webSocketStatus")
-    log.info("webSocketStatus(\"${status}\")")
+void handleDashboard(Map<String, Object> dashboard) {
+    log.trace("handleDashboard")
+
+    if (dashboard?.widgets == null || !(dashboard.widgets instanceof List)) {
+        log.trace("handleDashboard (returning early because input is unexpected)")
+        return
+    }
+
+    try {
+        handleConfigUpdate(dashboard)
+        handleMachineState(dashboard.widgets.find{it.code == "CMMachineStatus"})
+        handleCoffeeBoiler(dashboard.widgets.find{it.code == "CMCoffeeBoiler"})
+        handleSteamBoiler(dashboard.widgets.find{it.code == "CMSteamBoilerTemperature"})
+
+        updateLastUpdated()
+    }
+    catch (Exception ex) {
+        log.error("handleDashboard - Unable to update status because of an exception")
+        log.error(ex)
+    }
+
+    log.trace("handleDashboard (completed)")
+}
+
+
+void handleMachineState(Map<String, Object> widget) {
+    log.trace("handleMachineState")
+
+    if (widget?.output == null) {
+        log.trace("handleMachineState (returning because input is null)")
+        return
+    }
+    updateMachineState(widget.output.status)
+
+    log.trace("handleMachineState (completed)")
+}
+
+void handleCoffeeBoiler(Map<String, Object> widget) {
+    log.trace("handleCoffeeBoiler")
+
+    if (widget?.output == null) {
+        log.trace("handleCoffeeBoiler (returning because input is null)")
+        return
+    }
+
+    updateWaterLevel(widget.output.status != "NoWater");
+    updateEspressBoilerStatus(widget.output.status, widget.output.targetTemperature)
+
+    log.trace("handleCoffeeBoiler (completed)")
+}
+
+void handleSteamBoiler(Map<String, Object> widget) {
+    log.trace("handleSteamBoiler")
+
+    if (widget?.output == null) {
+        log.trace("handleSteamBoiler (returning because input is null)")
+        return
+    }
+
+    updateSteamBoilerStatus(widget.output.status, widget.output.enabled)
+
+    log.trace("handleSteamBoiler (completed)")
 }
 
 void refreshAll() {
-    //log.trace("refreshAll")
-    refreshMachineDetails()
-    refreshMachineIpAddress()
+    log.trace("refreshAll")
+
+    refreshDashboard()
     refreshConfig()
+
+    log.trace("refreshAll (completed)")
 }
 
-void refreshMachineDetails() {
-    //log.trace("refreshMachineDetails")
+void refreshDashboard() {
+    log.trace("refreshDashboard")
+
     if (settings?.serialNumber == null) {
         throw new Exception("Device Serial Number is required")
     }
 
-    parent.refreshMachineDetails(settings?.serialNumber) 
-
-    {communicationKey, modelName -> 
-    
-        state.communicationKey = communicationKey
-
-        updateModel(modelName)
-    }
-}
-
-void refreshMachineIpAddress() {
-    //log.trace("refreshMachineIpAddress")
-    if (settings?.serialNumber == null) {
-        throw new Exception("Device Serial Number is required")
+    parent.getMachineDashboard(settings?.serialNumber)
+    {dashboard ->
+        handleDashboard(dashboard)
     }
 
-    parent.refreshMachineIpAddress(settings?.serialNumber)
-    {ipAddress -> 
-        state.localIpAddress = ipAddress
-    }
-}
-
-
-void refreshStatus() {
-    //log.trace("refreshStatus")
-    if (settings?.serialNumber == null) {
-        throw new Exception("Device Serial Number is required")
-    }
-
-    parent.refreshStatus(settings?.serialNumber)
-    {machineStatus, tankLevel ->
-        updateMachineState(machineStatus)
-        updateWaterLevel(tankLevel)
-    }
+    log.trace("refreshDashboard (completed)")
 }
 
 void refreshConfig() {
-    //log.trace("refreshConfig")
-    if (state.localIpAddress == null || state.communicationKey == null) {
-        throw new Exception("Unable to refresh config becuase the local IP is not known, or the communication key is not known")
+    log.trace("refreshConfig")
+
+    if (settings?.serialNumber == null) {
+        throw new Exception("Device Serial Number is required")
     }
 
-    getMachineConfig(state.localIpAddress, state.communicationKey)
+    parent.getMachineConfig(settings?.serialNumber)
     {config -> 
         handleConfigUpdate(config)
     }
+
+    log.trace("refreshConfig (completed)")
 }
 
 void handleConfigUpdate(Map<String, Object> config) {
-    //log.trace("handleConfigUpdate")
-    Map<String, Object> espressoBoilerConfig = config.boilers.find({it.id == "CoffeeBoiler1"})
-    Map<String, Object> steamBoilerConfig = config.boilers.find({it.id == "SteamBoiler"})
-    Map<String, Object> machineFirmware = config.firmwareVersions.find({it.name == "machine_firmware"})
-    Map<String, Object> gatewayFirmware = config.firmwareVersions.find({it.name == "gateway_firmware"})
+    log.trace("handleConfigUpdate")
 
-    // log.info("Machine status is ${config.machineMode}")
-    // log.info("Espresso boiler isEnabled = ${espressoBoilerConfig.isEnabled}")
-    // log.info("Espresso boiler temperature = ${espressoBoilerConfig.current}")
-    // log.info("Steam boiler isEnabled = ${steamBoilerConfig.isEnabled}")
-    // log.info("Tank status = ${config.tankStatus}")
-    // log.info("Machine firmware version = ${machineFirmware.fw_version}")
-    // log.info("Gateway firmware version = ${gatewayFirmware.fw_version}")
+    if (config == null) {
+        log.trace("handleConfigUpdate (returning early because config is null)")
+        return
+    }
 
-    updateFirmware(machineFirmware.fw_version, gatewayFirmware.fw_version)
-    updateMachineState(config.machineMode)
-    updateWaterLevel(config.tankStatus)
-    updateEspressBoilerTemp(espressoBoilerConfig.current)
-    updateSteamBoilerState(steamBoilerConfig.isEnabled)
+    updateName(config.name)
+    updateModel(config.modelName)
+    updateConnected(config.connected)
+
+    updateFirmware(config.actualFirmwares.find{it.type == "Machine"}, config.actualFirmwares.find{it.type == "Gateway"})
+
+    log.trace("handleConfigUpdate (completed)")
+}
+
+void updateLastUpdated() {
+    log.trace("updateLastUpdated")
+
+    DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    sendEvent(name: "lastUpdated", value: LocalDateTime.now().format(formatter))
+
+    log.trace("updateLastUpdated (completed)")
+}
+
+void updateName(String name) {
+    log.trace("updateName")
+
+    if (name == null || name.trim() == "") {
+        log.trace("updateName (returning early because input is null or empty)")
+        return
+    }
+
+    sendEvent(name: "name", value: name)
+
+    log.trace("updateName (completed)")
 }
 
 void updateModel(String model) {
-    //log.trace("updateModel")
+    log.trace("updateModel")
+
+    if (model == null || model.trim() == "") {
+        log.trace("updateModel (returning early because input is null or empty)")
+        return
+    }
+    
     sendEvent(name: "manufacturer", value: "La Marzocco")
     sendEvent(name: "model", value: model)
+
+    log.trace("updateModel (completed)")
 }
 
-void updateFirmware(String machineVersion, String gatewayVersion) {
-    //log.trace("updateFirmware")
-    sendEvent(name: "firmwareVersion", value: machineVersion)
-    sendEvent(name: "gatewayFirmware", value: gatewayVersion)
+void updateFirmware(Map<String, Object> machineFirmware, Map<String, Object> gatewayFirmware) {
+    log.trace("updateFirmware")
+
+    if (machineFirmware != null) {
+        sendEvent(name: "firmwareVersion", value: machineFirmware?.buildVersion)
+    }
+
+    if (gatewayFirmware != null) {
+        sendEvent(name: "gatewayFirmware", value: gatewayFirmware?.buildVersion)
+    }
+
+    log.trace("updateFirmware (completed)")
+}
+
+void updateConnected(Boolean connected) {
+    log.trace("updateConnected")
+
+    sendEvent(name: "online", value: connected ? "connected" : "disconnected")
+
+    log.trace("updateConnected (completed)")
 }
 
 void updateMachineState (String state) {
-    //log.trace("updateMachineState")
-    if (getConstant("MACHINE_STATUS_ON").equalsIgnoreCase(state)) {
+    log.trace("updateMachineState")
+
+    if ("PoweredOn".equalsIgnoreCase(state)) {
         sendEvent(name: "switch", value: "on") 
     }
     else {
         sendEvent(name: "switch", value: "off")
     }
+
+    log.trace("updateMachineState (completed)")
 }
 
-void updateEspressBoilerTemp (Number temp) {
-    //log.trace("updateEspressBoilerTemp")
-    sendEvent(name: "temperature", value: temp, unit: "C", descriptionText: "${device.displayName} temperature is ${currentTemp}")
+void updateEspressBoilerStatus (String status, Double targetTemp) {
+    log.trace("updateEspressBoilerStatus")
+    
+    sendEvent(name: "coffeeBoilerStatus", value: status)
+    sendEvent(name: "coffeeBoilerTargetTemperature", value: targetTemp, unit: "C", descriptionText: "${device.displayName} target temperature is ${targetTemp}")
+
+    log.trace("updateEspressBoilerStatus (completed)")
 }
 
-void updateSteamBoilerState (Boolean active) {
-    //log.trace("updateSteamBoilerState")
-    // ChildDeviceWrapper steamBoiler = getSteamBoiler()
-    // if (steamBoiler == null) {
-    //     steamBoiler = createSteamBoiler()
-    // }
+void updateSteamBoilerStatus (String status, Boolean enabled) {
+    log.trace("updateSteamBoilerStatus")
+    
+    sendEvent(name: "steamBoilerStatus", value: status)
+    sendEvent(name: "steamBoilerEnabled", value: enabled)
 
-    // if (steamBoiler == null) {
-    //     log.warn("Cannot update steam boiler status because the device was not found")
-    //     return
-    // }
-
-    // steamBoiler.handlePowerUpdate(active)
+    log.trace("updateSteamBoilerStatus (completed)")
 }
 
 void updateWaterLevel (Boolean hasWater) {
-    //log.trace("updateWaterLevel")
+    log.trace("updateWaterLevel")
+    
     if (hasWater == true) {
         sendEvent(name: "waterLevel", value: "full", descriptionText: "${device.displayName} has water in the tank")    
     }
     else {
         sendEvent(name: "waterLevel", value: "empty", descriptionText: "${device.displayName} needs to be filled")
     }
+
+    log.trace("updateWaterLevel (completed)")
 }
-
-// ChildDeviceWrapper createSteamBoiler() {
-//     //log.trace("createSteamBoiler")
-//     return addChildDevice('derekchoate', "La Marzocco Home Espresso Machine Steam Boiler", "${device.deviceNetworkId}-steam-boiler", [label: "Steam Boiler", isComponent: true])
-// }
-
-// ChildDeviceWrapper getSteamBoiler() {
-//     //log.trace("getSteamBoiler")
-//     return getChildDevice("${device.deviceNetworkId}-steam-boiler")
-// }
 
 /* END: Utility Methods */
